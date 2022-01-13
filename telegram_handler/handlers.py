@@ -85,7 +85,8 @@ class TelegramHandler(logging.Handler):
             raise RuntimeError("Telegram client not connected!")
 
     async def init(self):
-        await self.tg_client.start(bot_token=self.token)
+        if not self.tg_client.is_connected():
+            await self.tg_client.start(bot_token=self.token)
         asyncio.create_task(self.handle_messages())
         await asyncio.sleep(1)
         
