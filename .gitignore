@@ -3,3 +3,4 @@
 .idea/
 .coverage
 htmlcov/
+telegram_handler/__pycache__/

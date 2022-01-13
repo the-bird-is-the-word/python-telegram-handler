@@ -3,3 +3,5 @@ mock
 pytest
 pytest-cov
 tox
+asyncio
+telethon

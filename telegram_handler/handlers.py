@@ -2,6 +2,8 @@ import logging
 from io import BytesIO
 
 import requests
+from telethon import TelegramClient
+import asyncio
 
 from telegram_handler.formatters import HtmlFormatter
 
@@ -19,7 +21,7 @@ class TelegramHandler(logging.Handler):
     API_ENDPOINT = 'https://api.telegram.org'
     last_response = None
 
-    def __init__(self, token, chat_id=None, level=logging.NOTSET, timeout=2, disable_notification=False,
+    def __init__(self, token, tg_client, chat_id=None, level=logging.NOTSET, timeout=2, disable_notification=False,
                  disable_web_page_preview=False, proxies=None):
         self.token = token
         self.disable_web_page_preview = disable_web_page_preview
@@ -32,6 +34,8 @@ class TelegramHandler(logging.Handler):
             logger.error('Did not get chat id. Setting handler logging level to NOTSET.')
         logger.info('Chat id: %s', self.chat_id)
 
+        self.tg_client = tg_client
+        self.msg_queue = asyncio.Queue()
         super(TelegramHandler, self).__init__(level=level)
 
         self.setFormatter(HtmlFormatter())
@@ -70,32 +74,29 @@ class TelegramHandler(logging.Handler):
 
         return response
 
-    def send_message(self, text, **kwargs):
-        data = {'text': text}
-        data.update(kwargs)
-        return self.request('sendMessage', json=data)
-
-    def send_document(self, text, document, **kwargs):
-        data = {'caption': text}
-        data.update(kwargs)
-        return self.request('sendDocument', data=data, files={'document': ('traceback.txt', document, 'text/plain')})
-
     def emit(self, record):
+        self.check_client_connected()
+
         text = self.format(record)
+        self.msg_queue.put_nowait(text)
 
-        data = {
-            'chat_id': self.chat_id,
-            'disable_web_page_preview': self.disable_web_page_preview,
-            'disable_notification': self.disable_notification,
-        }
+    def check_client_connected(self):
+        if not self.tg_client.is_connected():
+            raise RuntimeError("Telegram client not connected!")
 
-        if getattr(self.formatter, 'parse_mode', None):
-            data['parse_mode'] = self.formatter.parse_mode
+    async def init(self):
+        await self.tg_client.start(bot_token=self.token)
+        asyncio.create_task(self.handle_messages())
+        await asyncio.sleep(1)
+        
+    async def handle_messages(self):
+        self.check_client_connected()
 
-        if len(text) < MAX_MESSAGE_LEN:
-            response = self.send_message(text, **data)
-        else:
-            response = self.send_document(text[:1000], document=BytesIO(text.encode()), **data)
+        while True:
+            msg = await self.msg_queue.get()
 
-        if response and not response.get('ok', False):
-            logger.warning('Telegram responded with ok=false status! {}'.format(response))
+            # Send message
+            if len(msg) < MAX_MESSAGE_LEN:
+                await self.tg_client.send_message(self.chat_id, msg)
+            else:
+                await self.tg_client.send_file(self.chat_id, BytesIO(msg.encode()), caption=msg[:1000])
