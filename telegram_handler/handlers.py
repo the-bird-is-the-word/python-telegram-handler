@@ -75,8 +75,6 @@ class TelegramHandler(logging.Handler):
         return response
 
     def emit(self, record):
-        self.check_client_connected()
-
         text = self.format(record)
         self.msg_queue.put_nowait(text)
 
